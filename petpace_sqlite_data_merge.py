@@ -8,6 +8,7 @@ from openpyxl import Workbook
 from openpyxl.styles import NamedStyle
 from openpyxl.worksheet.table import Table
 from time import sleep
+import re
 
 DT_FORMATS = ["%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%d/%m/%Y %I:%M:%S %p"]
 
@@ -78,6 +79,13 @@ def iter_timestamp(start, end, interval=timedelta(minutes=1), skip_times=[]):
             yield timestamp
         timestamp += interval
 
+def build_prox_table(headings):
+    new_headings = [h.split('(')[1].split(')')[0] + " integer," for h in headings[1:]]
+    query_fragment = ' '.join(new_headings).strip(',')
+    query = f"""CREATE TABLE proximity (time timestamp,
+            rounded_time timestamp, {query_fragment})"""
+    return query
+
 def build_sqlite(data_file, prox_file, datatable_file):
     """compile sqlite db in memory based on csv files"""
     con = sqlite3.connect(":memory:", detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
@@ -92,8 +100,6 @@ def build_sqlite(data_file, prox_file, datatable_file):
     rounded_time timestamp, vvti real)""")
     cur.execute("""CREATE TABLE activity (time timestamp,
     rounded_time timestamp, activity real, activity_group text)""")
-    cur.execute("""CREATE TABLE proximity (time timestamp,
-    rounded_time timestamp, tas_tim integer, tas_rev integer)""")
     cur.execute("""CREATE TABLE vector_mag (time timestamp,
     rounded_time timestamp, vector_mag real)""")
     con.commit()
@@ -130,11 +136,13 @@ def build_sqlite(data_file, prox_file, datatable_file):
     con.commit()
     with open(prox_file, encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
+        cur.execute(build_prox_table(reader.fieldnames))
+        num_cols = len(reader.fieldnames[1:])
         for row in reader:
             timestamp, rounded = parse_dt(row['Timestamp'])
             cur.execute(
-                "INSERT INTO proximity VALUES (?, ?, ?, ?)",
-                (timestamp, rounded, row['TAS1H24200119 (Tim)'], row['TAS1H50200437 (Rev)']))
+                f"INSERT INTO proximity VALUES (?, ?, {', '.join(['?' for x in range(num_cols)])})",
+                (timestamp, rounded, *list(row.values())[1:]))
     with open(datatable_file, encoding='utf-8-sig') as f:
         reader = csv.reader(f)
         for x in range(10):
@@ -152,46 +160,35 @@ def build_sqlite(data_file, prox_file, datatable_file):
     return con
 
 
-def merge_prox_rows(rows):
+def merge_prox_rows(heads, rows):
     "merge several rows re proximity of doggo"
-    dists = []
-    rev_dists = []
-    present = []
-    rev_present = []
+    data = {}
     for row in rows:
-        tas = row['tas_tim']
-        rev = row['tas_rev']
-        try:
-            tas = int(tas)
-            dist = (((0.0012*(tas**2))+(0.0936*tas)+(1.9262)))
-            dists.append(dist)
-            present.append(1)
-        except ValueError:
-            present.append(0)
-        try:
-            tas_rev = int(rev)
-            rev_dist = (((0.0012*(tas_rev**2))+(0.0936*tas_rev)+(1.9262)))
-            rev_dists.append(rev_dist)
-            rev_present.append(1)
-        except ValueError:
-            rev_present.append(0)
-    if dists != []:
-        ave_dist = mean(dists)
-    else:
-        ave_dist = 0
-    if present != []:
-        ave_pres = mean(present)
-    else:
-        ave_pres = 0
-    if rev_dists != []:
-        ave_rev_dists = mean(rev_dists)
-    else:
-        ave_rev_dists = 0
-    if rev_present != []:
-        ave_rev_present = mean(rev_present)
-    else:
-        ave_rev_present = 0
-    return ave_dist, ave_pres, ave_rev_dists, ave_rev_present
+        cols = row[2:]
+        for col_num, col in enumerate(cols):
+            if data.get(col_num) is None:
+                data[col_num] = dict(dist=[], present=[])
+            try:
+                original = int(col)
+                dist = (((0.0012*(original**2))+(0.0936*original)+(1.9262)))
+                data[col_num]['dist'].append(dist)
+                data[col_num]['present'].append(1)
+            except ValueError:
+                data[col_num]['present'].append(0)
+    for col, vals in data.items():
+        if vals['dist'] != []:
+            vals['dist'] = mean(vals['dist'])
+        else:
+            vals['dist'] = 0
+        if vals['present'] != []:
+            vals['present'] = mean(vals['present'])
+        else:
+            vals['present'] = 0
+    flat_list = []
+    for item in data.values():
+        for val in item.values():
+            flat_list.append(val)
+    return flat_list
 
 
 def main(data_file, prox_file, datatable_file, output, start, end, skip_rows=0, skip_times=[]):
@@ -210,12 +207,18 @@ def main(data_file, prox_file, datatable_file, output, start, end, skip_rows=0, 
     respiration_sheet.append(['Time', 'Respiration'])
     vvti_sheet = wb.create_sheet('VVTI')
     vvti_sheet.append(['Time', 'VVTI'])
-    raw = wb.create_sheet('RAW')
+    con = build_sqlite(data_file, prox_file, datatable_file)
+    cursor = con.cursor()
     prox_sheet = wb.create_sheet('Proximity')
+    cursor.execute("SELECT * FROM proximity")
+    prox_heads = [x[0] for x in cursor.description]
+    prox_sheet_heads = []
+    for h in prox_heads[2:]:
+        prox_sheet_heads.append(f'{h} Distance/min')
+        prox_sheet_heads.append(f'{h} Present/min')
     prox_sheet.append(
         [
-            'Time/min', 'Tim Distance/min', 'Tim Present/min',
-            'Rev Distance/min', 'Rev Present/Min', 'ACtivity', 'Pulse',
+            'Time/min', *prox_sheet_heads, 'Activity', 'Pulse',
             'Respiration', 'VVTI', 'Position', 'Vector Magnitude'])
 
     with open(data_file, encoding='utf-8-sig') as f:
@@ -242,35 +245,11 @@ def main(data_file, prox_file, datatable_file, output, start, end, skip_rows=0, 
         respiration_sheet.append([timestamp, respiration])
         cursor.execute("SELECT vector_mag FROM vector_mag WHERE rounded_time = '%s'" % timestamp)
         vec_mag = cursor.fetchone()[0]
-        cursor.execute("SELECT rounded_time, tas_tim, tas_rev FROM proximity WHERE rounded_time = '%s'" % timestamp)
-        prox_sheet.append([timestamp, *merge_prox_rows(cursor.fetchall()), activity, pulse, respiration, vvti, position, vec_mag])
+        cursor.execute("SELECT * FROM proximity WHERE rounded_time = '%s'" % timestamp)
+        prox_sheet.append([timestamp, *merge_prox_rows(prox_heads, cursor.fetchall()), activity, pulse, respiration, vvti, position, vec_mag])
     for worksheet in wb.worksheets:
         for cell in worksheet['A'][1:]:
             cell.style = date_style
-    t_coords = prox_sheet[prox_sheet.max_row][-1].coordinate
-
-    tab = Table(displayName="proximity", ref=f"A1:{t_coords}")
-    prox_sheet.add_table(tab)
-    calc_heads = [
-        'Start', 'End', 'Tim Present Count', 'Tim Present %',
-        'Tim Present <=0.5m', 'Tim Present <=1m', 'Tim Present <=2m',
-        'Tim Present <=0.5m %', 'Tim Present <=1m %', 'Tim Present <=2m %',
-        'Rev Present Count', 'Rev Present %', 'Rev Present <=0.5m',
-        'Rev Present <=1m', 'Rev Present <=2m', 'Rev Present <=0.5m %',
-        'Rev Present <=1m %', 'Rev Present <=2m %']
-    for cell, head in zip(prox_sheet["N1:AE1"][0], calc_heads):
-        cell.value = head
-    days = [start]
-    for s, e in skip_times:
-        days.append(s)
-        days.append(e)
-    days.append(end)
-    days = [(days[x-1], days[x]) for x in range(1, len(days), 2)]
-
-    for row, days in zip(prox_sheet["N2:AE16"], days):
-        row[0].value = days[0]
-        row[1].value = days[1]
-        row[2].value = f'=SUMIFS(tab[Tim Present/min], tab[Timestamp], ">=" & {row[0].coordinate},  tab[Timestamp], "<=" & {row[0].coordinate})'
     wb.save(output)
     con.close()
     print(datetime.now() - start_time)
