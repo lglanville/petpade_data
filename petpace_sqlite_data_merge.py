@@ -75,7 +75,7 @@ def iter_timestamp(start, end, interval=timedelta(minutes=1), skip_times=[]):
     excluding specified periods"""
     timestamp = start
     while timestamp < end:
-        if not any([skipstart < timestamp <= skipend for skipstart, skipend in skip_times]):
+        if not any([skipstart <= timestamp < skipend for skipstart, skipend in skip_times]):
             yield timestamp
         timestamp += interval
 
