@@ -244,7 +244,7 @@ def main(data_file, prox_file, datatable_file, output, start, end, skip_rows=0, 
         respiration = fetch(cursor.fetchall(), ['respiration'])[0]
         respiration_sheet.append([timestamp, respiration])
         cursor.execute("SELECT vector_mag FROM vector_mag WHERE rounded_time = '%s'" % timestamp)
-        vec_mag = cursor.fetchone()[0]
+        vec_mag = fetch(cursor.fetchall(), ['vector_mag'])[0]
         cursor.execute("SELECT * FROM proximity WHERE rounded_time = '%s'" % timestamp)
         prox_sheet.append([timestamp, *merge_prox_rows(prox_heads, cursor.fetchall()), activity, pulse, respiration, vvti, position, vec_mag])
     for worksheet in wb.worksheets:
