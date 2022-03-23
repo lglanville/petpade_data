@@ -10,7 +10,9 @@ from openpyxl.worksheet.table import Table
 from time import sleep
 import re
 
-DT_FORMATS = ["%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%d/%m/%Y %I:%M:%S %p"]
+DT_FORMATS = [
+    "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%d/%m/%Y %I:%M:%S %p",
+    "%d-%b-%y %H:%M:%S", "%d-%b-%y %I:%M:%S %p"]
 
 
 def round_time(dt, roundTo=60):
@@ -31,6 +33,8 @@ def parse_dt(dt_string):
             break
         except Exception as e:
             pass
+    if timestamp is None:
+        raise ValueError("Unable to parse datetime string: ", dt_string)
     return timestamp, rounded
 
 
@@ -244,7 +248,9 @@ def main(data_file, prox_file, datatable_file, output, start, end, skip_rows=0, 
         respiration = fetch(cursor.fetchall(), ['respiration'])[0]
         respiration_sheet.append([timestamp, respiration])
         cursor.execute("SELECT vector_mag FROM vector_mag WHERE rounded_time = '%s'" % timestamp)
-        vec_mag = fetch(cursor.fetchall(), ['vector_mag'])[0]
+        vec_mag = cursor.fetchone()
+        if vec_mag is not None:
+            vec_mag = vec_mag['vector_mag']
         cursor.execute("SELECT * FROM proximity WHERE rounded_time = '%s'" % timestamp)
         prox_sheet.append([timestamp, *merge_prox_rows(prox_heads, cursor.fetchall()), activity, pulse, respiration, vvti, position, vec_mag])
     for worksheet in wb.worksheets:

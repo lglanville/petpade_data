@@ -1,5 +1,6 @@
 import petpace_sqlite_data_merge as pp
 import tkinter as tk
+from tkinter.messagebox import showinfo
 from tkinter import ttk, filedialog
 from datetime import date, time, datetime
 from tkcalendar import Calendar, DateEntry
@@ -148,6 +149,14 @@ class data_converter:
         self.datatable_file.set(filedialog.askopenfilename(title='Datatable file'))
         self.data_label.config(text=os.path.split(self.datatable_file.get())[1])
 
+    def popup_window(self, text):
+        window = tk.Toplevel()
+
+        label = tk.Label(window, text=text)
+        label.pack(fill='x', padx=50, pady=5)
+
+        button_close = tk.Button(window, text="Close", command=window.destroy)
+        button_close.pack(fill='x')
 
     def write_xlsx(self):
         self.xlsx_file = filedialog.asksaveasfilename(title='compiled workbook',
@@ -185,9 +194,15 @@ class data_converter:
             (charge3_start_date, charge3_end_date),
             (charge4_start_date, charge4_end_date)]
 
-        pp.main(
-            self.export_file.get(), self.prox_file.get(), self.datatable_file.get(),
-            self.xlsx_file, start_date, end_date, skip_times=skip_times)
+        try:
+            pp.main(
+                self.export_file.get(), self.prox_file.get(), self.datatable_file.get(),
+                self.xlsx_file, start_date, end_date, skip_times=skip_times)
+            self.popup_window("Ultimate success! (☞ﾟヮﾟ)☞" +"\n" + self.xlsx_file)
+        except Exception as e:
+            self.popup_window("ah no, it's stuffed ಥ_ಥ" + "\n" + str(e))
+
+
 
 if __name__ == '__main__':
     root = tk.Tk()
