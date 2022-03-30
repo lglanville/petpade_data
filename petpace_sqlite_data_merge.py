@@ -143,7 +143,9 @@ def build_sqlite(data_file, prox_file, datatable_file):
         cur.execute(build_prox_table(reader.fieldnames))
         num_cols = len(reader.fieldnames[1:])
         for row in reader:
-            timestamp, rounded = parse_dt(row['Timestamp'])
+            # timestamp, rounded = parse_dt(row['Timestamp'])
+            timestamp, _ = parse_dt(row['Timestamp'])
+            rounded = timestamp.replace(second=0, microsecond=0)
             cur.execute(
                 f"INSERT INTO proximity VALUES (?, ?, {', '.join(['?' for x in range(num_cols)])})",
                 (timestamp, rounded, *list(row.values())[1:]))
@@ -174,10 +176,14 @@ def merge_prox_rows(heads, rows):
                 data[col_num] = dict(dist=[], present=[])
             try:
                 original = int(col)
-                dist = (((0.0012*(original**2))+(0.0936*original)+(1.9262)))
+                if original == -78:
+                    dist = 0
+                else:
+                    dist = (((0.0012*(original**2))+(0.0936*original)+(1.9262)))
                 data[col_num]['dist'].append(dist)
                 data[col_num]['present'].append(1)
             except ValueError:
+                data[col_num]['dist'].append(0)
                 data[col_num]['present'].append(0)
     for col, vals in data.items():
         if vals['dist'] != []:
