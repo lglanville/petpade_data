@@ -176,10 +176,9 @@ def merge_prox_rows(heads, rows):
                 data[col_num] = dict(dist=[], present=[])
             try:
                 original = int(col)
-                if original == -78:
+                dist = (((0.0012*(original**2))+(0.0936*original)+(1.9262)))
+                if round(dist, 4) == 1.9262:
                     dist = 0
-                else:
-                    dist = (((0.0012*(original**2))+(0.0936*original)+(1.9262)))
                 data[col_num]['dist'].append(dist)
                 data[col_num]['present'].append(1)
             except ValueError:
