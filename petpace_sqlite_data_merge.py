@@ -91,7 +91,7 @@ def build_prox_table(headings):
     return query
 
 def build_sqlite(data_file, prox_file, datatable_file):
-    """compile sqlite db in memory based on csv files"""
+    """compile sqlite db in memory based on csv files for simpler querying"""
     con = sqlite3.connect(":memory:", detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     cur = con.cursor()
     cur.execute("""CREATE TABLE position (time timestamp,
@@ -109,6 +109,7 @@ def build_sqlite(data_file, prox_file, datatable_file):
     con.commit()
     con.row_factory = sqlite3.Row
 
+    # read in the petpace export file to an in memory sql database for querying
     with open(data_file, encoding='utf-8-sig') as f:
         reader = csv.reader(f)
         for x in range(2):
@@ -138,17 +139,23 @@ def build_sqlite(data_file, prox_file, datatable_file):
                     "INSERT INTO activity VALUES (?, ?, ?, ?)",
                     (timestamp, rounded, dict_row['Activity'], dict_row['Activity Group']))
     con.commit()
+
+    # read in the proximity export file to an in memory sql database for querying
     with open(prox_file, encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
+        # custom function to create table because proximity file has variable column numbers
         cur.execute(build_prox_table(reader.fieldnames))
         num_cols = len(reader.fieldnames[1:])
         for row in reader:
             # timestamp, rounded = parse_dt(row['Timestamp'])
             timestamp, _ = parse_dt(row['Timestamp'])
+            # we don't use the rounded time function because it rounds 30 seconds up
             rounded = timestamp.replace(second=0, microsecond=0)
             cur.execute(
                 f"INSERT INTO proximity VALUES (?, ?, {', '.join(['?' for x in range(num_cols)])})",
                 (timestamp, rounded, *list(row.values())[1:]))
+
+    # read in the proximity export file to an in memory sql database for querying
     with open(datatable_file, encoding='utf-8-sig') as f:
         reader = csv.reader(f)
         for x in range(10):
@@ -177,12 +184,11 @@ def merge_prox_rows(heads, rows):
             try:
                 original = int(col)
                 dist = (((0.0012*(original**2))+(0.0936*original)+(1.9262)))
-                if round(dist, 4) == 1.9262:
+                if round(dist, 4) == 1.9262: # constant so actually 0
                     dist = 0
                 data[col_num]['dist'].append(dist)
                 data[col_num]['present'].append(1)
             except ValueError:
-                data[col_num]['dist'].append(0)
                 data[col_num]['present'].append(0)
     for col, vals in data.items():
         if vals['dist'] != []:
@@ -199,6 +205,14 @@ def merge_prox_rows(heads, rows):
             flat_list.append(val)
     return flat_list
 
+def calc_dist(rssi_values):
+    vals = []
+    for x in rssi_values:
+        if x == '':
+            vals.extend(['', 0])
+        else:
+            vals.extend([(((0.0012*(x**2))+(0.0936*x)+(1.9262))), 1])
+    return vals
 
 def main(data_file, prox_file, datatable_file, output, start, end, skip_rows=0, skip_times=[]):
     "do all the things"
@@ -219,6 +233,7 @@ def main(data_file, prox_file, datatable_file, output, start, end, skip_rows=0, 
     con = build_sqlite(data_file, prox_file, datatable_file)
     cursor = con.cursor()
     prox_sheet = wb.create_sheet('Proximity')
+    pre_prox_sheet = wb.create_sheet('Pre-averaged Proximity')
     cursor.execute("SELECT * FROM proximity")
     prox_heads = [x[0] for x in cursor.description]
     prox_sheet_heads = []
@@ -229,7 +244,7 @@ def main(data_file, prox_file, datatable_file, output, start, end, skip_rows=0, 
         [
             'Time/min', *prox_sheet_heads, 'Activity', 'Pulse',
             'Respiration', 'VVTI', 'Position', 'Vector Magnitude'])
-
+    pre_prox_sheet.append(['Time/min', *prox_sheet_heads])
     with open(data_file, encoding='utf-8-sig') as f:
         reader = csv.reader(f)
         for row in reader:
@@ -257,7 +272,10 @@ def main(data_file, prox_file, datatable_file, output, start, end, skip_rows=0, 
         if vec_mag is not None:
             vec_mag = vec_mag['vector_mag']
         cursor.execute("SELECT * FROM proximity WHERE rounded_time = '%s'" % timestamp)
-        prox_sheet.append([timestamp, *merge_prox_rows(prox_heads, cursor.fetchall()), activity, pulse, respiration, vvti, position, vec_mag])
+        prox_rows = cursor.fetchall()
+        prox_sheet.append([timestamp, *merge_prox_rows(prox_heads, prox_rows), activity, pulse, respiration, vvti, position, vec_mag])
+        for prox_row in prox_rows:
+            pre_prox_sheet.append([prox_row[0], *calc_dist(prox_row[2:])])
     for worksheet in wb.worksheets:
         for cell in worksheet['A'][1:]:
             cell.style = date_style
