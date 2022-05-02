@@ -185,9 +185,10 @@ def merge_prox_rows(heads, rows):
                 original = int(col)
                 dist = (((0.0012*(original**2))+(0.0936*original)+(1.9262)))
                 if round(dist, 4) == 1.9262: # constant so actually 0
-                    dist = 0
-                data[col_num]['dist'].append(dist)
-                data[col_num]['present'].append(1)
+                    data[col_num]['present'].append(0)
+                else:
+                    data[col_num]['dist'].append(dist)
+                    data[col_num]['present'].append(1)
             except ValueError:
                 data[col_num]['present'].append(0)
     for col, vals in data.items():
@@ -211,7 +212,11 @@ def calc_dist(rssi_values):
         if x == '':
             vals.extend(['', 0])
         else:
-            vals.extend([(((0.0012*(x**2))+(0.0936*x)+(1.9262))), 1])
+            dist = (((0.0012*(x**2))+(0.0936*x)+(1.9262)))
+            if round(dist, 4) == 1.9262:
+                vals.extend(['', 0])
+            else:
+                vals.extend([(((0.0012*(x**2))+(0.0936*x)+(1.9262))), 1])
     return vals
 
 def main(data_file, prox_file, datatable_file, output, start, end, skip_rows=0, skip_times=[]):
