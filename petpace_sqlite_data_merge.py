@@ -12,7 +12,7 @@ import re
 
 DT_FORMATS = [
     "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%d/%m/%Y %I:%M:%S %p",
-    "%d-%b-%y %H:%M:%S", "%d-%b-%y %I:%M:%S %p"]
+    "%d-%b-%y %H:%M:%S", "%d-%b-%y %I:%M:%S %p", "%d-%m-%y %H:%M:%S"]
 
 
 def round_time(dt, roundTo=60):
